@@ -1,0 +1,7 @@
+<article
+  id="task-card-{{ task.id }}"
+  class="task-card status-{{ task.status }}"
+  hx-swap-oob="outerHTML"
+>
+  {% include "partials/task-card-content.html" %}
+</article>
