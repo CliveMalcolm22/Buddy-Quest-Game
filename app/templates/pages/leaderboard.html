@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="card leaderboard-page">
+  <div class="panel-header">
+    <div class="leaderboard-heading">
+      <a class="back-link" href="/" aria-label="Back to Today dashboard">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="m15 18-6-6 6-6" />
+          <path d="M20 12H9" />
+        </svg>
+        <span>Back to Today</span>
+      </a>
+      <h2>Leaderboard</h2>
+    </div>
+    <span class="muted">This week</span>
+  </div>
+
+  <div class="leaderboard-list large">
+    {% for player in leaderboard %}
+      {% include "partials/leaderboard-row.html" %}
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}
