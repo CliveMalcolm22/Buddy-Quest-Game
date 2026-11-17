@@ -22,3 +22,14 @@ def is_streak_day(total_tasks: int, completed_tasks: int) -> bool:
     completion_rate = completed_tasks / total_tasks
 
     return completion_rate >= STREAK_COMPLETION_THRESHOLD
+def calculate_current_streak(qualifying_days: list[bool]) -> int:
+    """Count consecutive qualifying days ending with the latest recorded day."""
+    streak = 0
+
+    for day_qualified in reversed(qualifying_days):
+        if not day_qualified:
+            break
+
+        streak += 1
+
+    return streak
