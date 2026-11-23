@@ -1,0 +1,20 @@
+<div class="notification-item">
+  <div class="notification-avatar">
+    <div class="avatar avatar-sm">
+      <span aria-hidden="true">{{ note.initials }}</span>
+      <img class="avatar-image" src="{{ url_for('static', path=note.avatar).path }}" alt="" loading="lazy" />
+    </div>
+  </div>
+
+  <div class="notification-content">
+    <div class="notification-message">{{ note.message }}</div>
+    <div class="notification-meta">
+      <span>{{ note.date }}</span>
+      <span>{{ note.time_ago }}</span>
+    </div>
+  </div>
+
+  {% if note.cta %}
+    <button class="button small secondary">{{ note.cta }}</button>
+  {% endif %}
+</div>

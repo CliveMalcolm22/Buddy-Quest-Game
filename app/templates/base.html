@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Buddy Quest</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/tokens.css').path }}" />
+    <link rel="stylesheet" href="{{ url_for('static', path='css/app.css').path }}" />
+    <link rel="stylesheet" href="{{ url_for('static', path='css/components.css').path }}" />
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <div class="brand-mark">B</div>
+          <div class="brand-meta">
+            <span class="eyebrow">Buddy Quest</span>
+            <h1>Today</h1>
+          </div>
+        </div>
+
+        <nav class="topnav" aria-label="Main navigation">
+          <a class="nav-link active" href="/">Today</a>
+          <a class="nav-link" href="/leaderboard">Leaderboard</a>
+          <a class="nav-link" href="#">Friends</a>
+          <a class="nav-link" href="#">Insights</a>
+        </nav>
+
+        <div class="topbar-actions">
+          <button class="icon-button" aria-label="Notifications">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
+              <path d="M10 21h4" />
+            </svg>
+          </button>
+          <div class="user-chip">
+            <div class="avatar avatar-sm">
+              <span aria-hidden="true">Y</span>
+              <img class="avatar-image" src="{{ url_for('static', path='images/avatars/you.svg').path }}" alt="" />
+            </div>
+            <span>You</span>
+          </div>
+        </div>
+      </header>
+
+      <main class="page-shell">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+
+    <script src="{{ url_for('static', path='js/app.js').path }}"></script>
+  </body>
+</html>
