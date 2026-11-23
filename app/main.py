@@ -1,11 +1,17 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
+
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pathlib import Path
 
-from app.database import initialize_database
+from app.database import init_db
+from app.routers.auth import router as auth_router
+from app.routers.friends import router as friends_router
+from app.routers.leaderboard import router as leaderboard_router
+from app.routers.progress import router as progress_router
+from app.routers.tasks import router as tasks_router
 from app.services.tasks import (
     TaskLockedError,
     TaskNotFoundError,
@@ -24,11 +30,16 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    initialize_database()
+    init_db()
     yield
 
 
 app = FastAPI(title="Buddy Quest", version="0.1.0", lifespan=lifespan)
+app.include_router(auth_router)
+app.include_router(tasks_router)
+app.include_router(friends_router)
+app.include_router(leaderboard_router)
+app.include_router(progress_router)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 

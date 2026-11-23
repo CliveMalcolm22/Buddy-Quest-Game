@@ -5,6 +5,37 @@ A Python web app that turns a daily to-do list into a game you play with friends
 
 ---
 
+## Quick start for Python 3.12
+
+1. Create a virtual environment:
+   ```bash
+   python3.12 -m venv .venv
+   source .venv/bin/activate
+   ```
+2. Install dependencies:
+   ```bash
+   pip install --upgrade pip
+   pip install -r requirements.txt
+   ```
+3. Copy the environment template:
+   ```bash
+   cp .env.example .env
+   ```
+4. Create the database schema with Alembic:
+   ```bash
+   alembic upgrade head
+   ```
+5. Start the application:
+   ```bash
+   uvicorn app.main:app --reload
+   ```
+6. Run the test suite:
+   ```bash
+   pytest -q
+   ```
+
+---
+
 ## Table of contents
 
 1. [What the app does](#1-what-the-app-does)
