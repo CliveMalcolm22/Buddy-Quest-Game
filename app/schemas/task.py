@@ -21,3 +21,4 @@ class TaskResponse(TaskCreate):
     user_id: int
     status: str
     completion_points: int
+    completed_at: datetime | None = None

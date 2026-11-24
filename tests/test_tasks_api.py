@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
@@ -6,6 +7,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base, get_db
 from app.main import app
 from app.models.task import Task
+from app.models.point_event import PointEvent
 
 
 def test_task_crud_and_user_isolation():
@@ -166,3 +168,133 @@ def test_task_routes_require_authentication():
         "/tasks/",
         json={"title": "Unauthorised task"},
     ).status_code == 401
+
+def test_task_completion_scoring_grace_period_and_idempotency():
+    engine = create_engine(
+        "sqlite:///:memory:",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+
+    def override_get_db():
+        with Session(engine) as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    try:
+        client = TestClient(app)
+
+        alice = client.post(
+            "/auth/register",
+            json={
+                "username": "completion_alice",
+                "email": "completion_alice@example.com",
+                "password": "questpass123",
+            },
+        )
+        bob = client.post(
+            "/auth/register",
+            json={
+                "username": "completion_bob",
+                "email": "completion_bob@example.com",
+                "password": "questpass123",
+            },
+        )
+
+        assert alice.status_code == 201
+        assert bob.status_code == 201
+
+        alice_headers = {
+            "Authorization": f"Bearer {alice.json()['access_token']}"
+        }
+        bob_headers = {
+            "Authorization": f"Bearer {bob.json()['access_token']}"
+        }
+
+        now = datetime.now(timezone.utc)
+
+        def create_task(title, deadline):
+            response = client.post(
+                "/tasks/",
+                json={
+                    "title": title,
+                    "deadline": deadline.isoformat(),
+                },
+                headers=alice_headers,
+            )
+            assert response.status_code == 201
+            return response.json()["id"]
+
+        on_time_id = create_task("On-time task", now + timedelta(minutes=10))
+        late_id = create_task("Late task", now - timedelta(minutes=2))
+        expired_id = create_task("Expired task", now - timedelta(minutes=10))
+
+        # Another user cannot complete Alice's task.
+        forbidden = client.post(
+            f"/tasks/{on_time_id}/complete",
+            headers=bob_headers,
+        )
+        assert forbidden.status_code == 404
+
+        # Completing before the deadline awards 10 points.
+        on_time = client.post(
+            f"/tasks/{on_time_id}/complete",
+            headers=alice_headers,
+        )
+        assert on_time.status_code == 200
+        assert on_time.json()["status"] == "completed"
+        assert on_time.json()["completion_points"] == 10
+        assert on_time.json()["completed_at"] is not None
+
+        # Repeating completion must not award points again.
+        duplicate = client.post(
+            f"/tasks/{on_time_id}/complete",
+            headers=alice_headers,
+        )
+        assert duplicate.status_code == 409
+
+        # Completing two minutes after the deadline is still within grace.
+        late = client.post(
+            f"/tasks/{late_id}/complete",
+            headers=alice_headers,
+        )
+        assert late.status_code == 200
+        assert late.json()["status"] == "completed"
+        assert late.json()["completion_points"] == 3
+
+        # Completing after the five-minute grace period records a miss.
+        expired = client.post(
+            f"/tasks/{expired_id}/complete",
+            headers=alice_headers,
+        )
+        assert expired.status_code == 409
+
+        with Session(engine) as db:
+            events = db.scalars(
+                select(PointEvent).order_by(PointEvent.id)
+            ).all()
+
+            assert len(events) == 3
+
+            events_by_task = {event.task_id: event for event in events}
+
+            assert events_by_task[on_time_id].source == "task_completion_on_time"
+            assert events_by_task[on_time_id].points == 10
+
+            assert events_by_task[late_id].source == "task_completion_late"
+            assert events_by_task[late_id].points == 3
+
+            assert events_by_task[expired_id].source == "task_missed"
+            assert events_by_task[expired_id].points == 0
+
+            expired_task = db.get(Task, expired_id)
+            assert expired_task.status == "missed"
+            assert expired_task.completion_points == 0
+
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
