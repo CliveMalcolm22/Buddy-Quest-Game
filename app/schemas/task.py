@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TaskCreate(BaseModel):
@@ -15,6 +15,8 @@ class TaskUpdate(TaskCreate):
 
 
 class TaskResponse(TaskCreate):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     user_id: int
     status: str
