@@ -140,3 +140,96 @@ def test_friend_requests_require_authentication():
         "/friends/request",
         json={"friend_id": 2},
     ).status_code == 401
+
+def test_friend_request_edge_cases():
+    engine = create_engine(
+        "sqlite:///:memory:",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+
+    def override_get_db():
+        with Session(engine) as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    try:
+        client = TestClient(app)
+
+        users = []
+        for username in ("alice", "bob", "charlie"):
+            response = client.post(
+                "/auth/register",
+                json={
+                    "username": username,
+                    "email": f"{username}@example.com",
+                    "password": "questpass123",
+                },
+            )
+            assert response.status_code == 201
+            users.append(response.json())
+
+        alice_headers = {
+            "Authorization": f"Bearer {users[0]['access_token']}"
+        }
+        bob_headers = {
+            "Authorization": f"Bearer {users[1]['access_token']}"
+        }
+        charlie_headers = {
+            "Authorization": f"Bearer {users[2]['access_token']}"
+        }
+
+        # A user cannot request themselves.
+        self_request = client.post(
+            "/friends/request",
+            json={"friend_id": 1},
+            headers=alice_headers,
+        )
+        assert self_request.status_code == 400
+
+        # Alice sends Bob a request.
+        request = client.post(
+            "/friends/request",
+            json={"friend_id": 2},
+            headers=alice_headers,
+        )
+        assert request.status_code == 201
+        request_id = request.json()["id"]
+
+        # Bob cannot create a reverse request while Alice's is pending.
+        reverse_request = client.post(
+            "/friends/request",
+            json={"friend_id": 1},
+            headers=bob_headers,
+        )
+        assert reverse_request.status_code == 409
+
+        # Charlie cannot accept a request addressed to Bob.
+        unauthorized_accept = client.post(
+            f"/friends/requests/{request_id}/accept",
+            headers=charlie_headers,
+        )
+        assert unauthorized_accept.status_code == 404
+
+        # Bob can decline his incoming request.
+        declined = client.post(
+            f"/friends/requests/{request_id}/decline",
+            headers=bob_headers,
+        )
+        assert declined.status_code == 200
+        assert declined.json()["status"] == "declined"
+
+        # The same request cannot be declined again.
+        repeated_decline = client.post(
+            f"/friends/requests/{request_id}/decline",
+            headers=bob_headers,
+        )
+        assert repeated_decline.status_code == 404
+
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
