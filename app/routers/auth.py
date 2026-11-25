@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -16,20 +16,25 @@ from app.security import create_access_token, digest_access_token, hash_password
 router = APIRouter(prefix="/auth", tags=["auth"])
 bearer_scheme = HTTPBearer(auto_error=False)
 
-
 def get_current_session(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    session_cookie: str | None = Cookie(default=None, alias="buddy_quest_session"),
     db: Session = Depends(get_db),
 ) -> AuthSession:
-    if credentials is None:
+    token = credentials.credentials if credentials else session_cookie
+
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    token_digest = digest_access_token(credentials.credentials)
-    auth_session = db.scalar(select(AuthSession).where(AuthSession.token_digest == token_digest))
+    token_digest = digest_access_token(token)
+    auth_session = db.scalar(
+        select(AuthSession).where(AuthSession.token_digest == token_digest)
+    )
+
     now = datetime.now(timezone.utc)
     if auth_session is None or auth_session.expires_at.replace(tzinfo=timezone.utc) <= now:
         raise HTTPException(
@@ -37,9 +42,15 @@ def get_current_session(
             detail="Invalid or expired access token.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
     if not auth_session.user.is_active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Inactive account.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Inactive account.",
+        )
+
     return auth_session
+
 
 
 def get_current_user(auth_session: AuthSession = Depends(get_current_session)) -> User:
@@ -64,7 +75,11 @@ def register_user(payload: UserCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login_user(payload: LoginRequest, db: Session = Depends(get_db)):
+def login_user(
+    payload: LoginRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+):
     user = db.scalar(select(User).where(User.email == payload.email))
     if user is None or not verify_password(payload.password, user.password_hash) or not user.is_active:
         raise HTTPException(
@@ -72,8 +87,20 @@ def login_user(payload: LoginRequest, db: Session = Depends(get_db)):
             detail="Incorrect email or password.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return _issue_token(db, user)
 
+    token_response = _issue_token(db, user)
+
+    response.set_cookie(
+        key="buddy_quest_session",
+        value=token_response["access_token"],
+        max_age=settings.access_token_expire_minutes * 60,
+        httponly=True,
+        secure=settings.environment.lower() == "production",
+        samesite="lax",
+        path="/",
+    )
+
+    return token_response
 
 @router.get("/me", response_model=AccountResponse)
 def read_account(current_user: User = Depends(get_current_user)):
@@ -88,8 +115,16 @@ def logout_user(
 ):
     db.delete(auth_session)
     db.commit()
-    response.status_code = status.HTTP_204_NO_CONTENT
 
+    response.delete_cookie(
+        key="buddy_quest_session",
+        path="/",
+        httponly=True,
+        secure=settings.environment.lower() == "production",
+        samesite="lax",
+    )
+
+    response.status_code = status.HTTP_204_NO_CONTENT
 
 def _issue_token(db: Session, user: User) -> dict[str, str]:
     token = create_access_token()

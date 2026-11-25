@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="card">
+    <div class="panel-header">
+        <h2>My Friends</h2>
+        <span>{{ friends|length }} friends</span>
+    </div>
+
+    <h3>Find Friends</h3>
+    <form id="friend-search-form">
+        <input
+            type="text"
+            id="friend-search"
+            placeholder="Enter a username"
+        >
+        <button type="submit">Search</button>
+    </form>
+
+    <div id="friend-search-results"></div>
+
+    <h3>Friends List</h3>
+    {% for friend in friends %}
+        <div class="friend-row">
+            <strong>{{ friend.display_name or friend.username }}</strong>
+            <span>@{{ friend.username }}</span>
+        </div>
+    {% else %}
+        <p>You haven't added any friends yet.</p>
+    {% endfor %}
+
+    <h3>Friend Requests</h3>
+    {% for request in incoming_requests %}
+        <div>
+            <span>Request #{{ request.id }}</span>
+            <button data-action="accept" data-id="{{ request.id }}">Accept</button>
+            <button data-action="decline" data-id="{{ request.id }}">Decline</button>
+        </div>
+    {% else %}
+        <p>No new friend requests.</p>
+    {% endfor %}
+
+    <h3>Sent Requests</h3>
+    {% for request in outgoing_requests %}
+        <p>Request #{{ request.id }} - Pending</p>
+    {% else %}
+        <p>You haven't sent any requests.</p>
+    {% endfor %}
+</section>
+{% endblock %}

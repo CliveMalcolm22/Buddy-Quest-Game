@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.deadline_extension import DeadlineExtension
+from app.models.help import HelpRequest
+from app.models.notification import Notification
 from app.models.point_event import PointEvent
 from app.models.task import Task
 from app.models.user import User
@@ -17,7 +19,7 @@ from app.schemas.task import (
     TaskResponse,
     TaskUpdate,
 )
-from app.services.scoring import task_completion_points
+from app.services.scoring import HELP_FRIEND_POINTS, task_completion_points
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -245,6 +247,36 @@ def complete_task(
             description=f"{completion_type.replace('_', ' ').title()} completion: {task.title}",
         )
     )
+
+    help_request = db.scalar(
+        select(HelpRequest).where(
+            HelpRequest.task_id == task.id,
+            HelpRequest.status == "accepted",
+        )
+    )
+
+    if help_request is not None and help_request.helper_id is not None:
+        helper = db.get(User, help_request.helper_id)
+
+        if helper is not None:
+            db.add(
+                PointEvent(
+                    user_id=helper.id,
+                    task_id=None,
+                    source="help_friend",
+                    points=HELP_FRIEND_POINTS,
+                    description=f"Helped {current_user.username} complete: {task.title}",
+                )
+            )
+            db.add(
+                Notification(
+                    user_id=helper.id,
+                    message=f"You earned {HELP_FRIEND_POINTS} points for helping with {task.title}!",
+                    type="help_completed",
+                )
+            )
+
+        help_request.status = "completed"
 
     try:
         db.commit()

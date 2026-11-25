@@ -97,3 +97,58 @@ def test_registration_validates_email_and_password():
 
     assert invalid_email.status_code == 422
     assert weak_password.status_code == 422
+
+def test_browser_login_sets_http_only_cookie_and_logout_clears_it():
+    engine = create_engine(
+        "sqlite:///:memory:",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+
+    def override_get_db():
+        with Session(engine) as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        client = TestClient(app)
+
+        registration = client.post(
+            "/auth/register",
+            json={
+                "username": "cookieuser",
+                "email": "cookie@example.com",
+                "password": "questpass123",
+            },
+        )
+        assert registration.status_code == 201
+
+        login = client.post(
+            "/auth/login",
+            json={
+                "email": "cookie@example.com",
+                "password": "questpass123",
+            },
+        )
+        assert login.status_code == 200
+
+        cookie = login.cookies.get("buddy_quest_session")
+        assert cookie
+        assert "httponly" in login.headers["set-cookie"].lower()
+        assert "samesite=lax" in login.headers["set-cookie"].lower()
+
+        account = client.get("/auth/me")
+        assert account.status_code == 200
+        assert account.json()["username"] == "cookieuser"
+
+        logout = client.post("/auth/logout")
+        assert logout.status_code == 204
+
+        revoked_account = client.get("/auth/me")
+        assert revoked_account.status_code == 401
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()

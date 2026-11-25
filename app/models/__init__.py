@@ -1,3 +1,4 @@
+from .habit import Habit, HabitCompletion
 from .deadline_extension import DeadlineExtension
 from .friendship import Friendship
 from .help import HelpRequest
@@ -8,6 +9,8 @@ from .task import Task
 from .user import User
 
 __all__ = [
+    "Habit",
+    "HabitCompletion",
     "User",
     "Task",
     "Friendship",

@@ -30,3 +30,62 @@ document.body.addEventListener('htmx:beforeSwap', (event) => {
     event.detail.isError = false;
   }
 });
+document.getElementById("friend-search-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const query = document.getElementById("friend-search").value.trim();
+  const results = document.getElementById("friend-search-results");
+
+  if (query.length < 2) {
+    results.textContent = "Enter at least 2 characters.";
+    return;
+  }
+
+  const response = await fetch(`/friends/search?q=${encodeURIComponent(query)}`);
+  const users = await response.json();
+
+  results.innerHTML = "";
+
+  users.forEach(user => {
+    const item = document.createElement("div");
+    item.innerHTML = `
+      <span>${user.display_name || user.username} (@${user.username})</span>
+      <button type="button" data-friend-id="${user.friend_id}">Send Request</button>
+    `;
+    results.appendChild(item);
+  });
+
+  if (users.length === 0) results.textContent = "No users found.";
+});
+
+document.getElementById("friend-search-results")?.addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-friend-id]");
+  if (!button) return;
+
+  const response = await fetch("/friends/request", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ friend_id: Number(button.dataset.friendId) })
+  });
+
+  const result = await response.json();
+  alert(response.ok ? "Friend request sent!" : result.detail || "Could not send request.");
+  if (response.ok) button.disabled = true;
+});
+document.querySelectorAll("[data-action]").forEach(button => {
+  button.addEventListener("click", async () => {
+    const id = button.dataset.id;
+    const action = button.dataset.action;
+
+    const response = await fetch(`/friends/requests/${id}/${action}`, {
+      method: "POST"
+    });
+
+    if (response.ok) {
+      alert("Friend request updated.");
+      location.reload();
+    } else {
+      alert("Something went wrong.");
+    }
+  });
+});
