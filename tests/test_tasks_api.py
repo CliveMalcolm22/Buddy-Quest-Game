@@ -298,3 +298,202 @@ def test_task_completion_scoring_grace_period_and_idempotency():
         app.dependency_overrides.pop(get_db, None)
         Base.metadata.drop_all(bind=engine)
         engine.dispose()
+
+
+def test_deadline_extension_audit_limit_and_fair_play():
+    from app.models.deadline_extension import DeadlineExtension
+
+    engine = create_engine(
+        "sqlite:///:memory:",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+
+    def override_get_db():
+        with Session(engine) as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    try:
+        client = TestClient(app)
+
+        alice = client.post(
+            "/auth/register",
+            json={
+                "username": "alice",
+                "email": "alice@example.com",
+                "password": "questpass123",
+            },
+        )
+        bob = client.post(
+            "/auth/register",
+            json={
+                "username": "bob",
+                "email": "bob@example.com",
+                "password": "questpass123",
+            },
+        )
+
+        assert alice.status_code == 201
+        assert bob.status_code == 201
+
+        alice_headers = {
+            "Authorization": f"Bearer {alice.json()['access_token']}"
+        }
+        bob_headers = {
+            "Authorization": f"Bearer {bob.json()['access_token']}"
+        }
+        alice_account = client.get("/auth/me", headers=alice_headers)
+        assert alice_account.status_code == 200
+        alice_id = alice_account.json()["id"]
+
+        def create_task(title, deadline):
+            response = client.post(
+                "/tasks/",
+                json={
+                    "title": title,
+                    "deadline": deadline.isoformat(),
+                },
+                headers=alice_headers,
+            )
+            assert response.status_code == 201
+            return response.json()["id"]
+
+        now = datetime.now(timezone.utc)
+        original_deadline = now + timedelta(hours=1)
+        extended_deadline = now + timedelta(hours=2)
+
+        task_id = create_task("Extend this task", original_deadline)
+
+        # Another user cannot extend Alice's task.
+        forbidden = client.post(
+            f"/tasks/{task_id}/extend",
+            json={"new_deadline": extended_deadline.isoformat()},
+            headers=bob_headers,
+        )
+        assert forbidden.status_code == 404
+
+        # A new deadline must be later than the existing deadline.
+        invalid_extension = client.post(
+            f"/tasks/{task_id}/extend",
+            json={
+                "new_deadline": (
+                    original_deadline - timedelta(minutes=1)
+                ).isoformat()
+            },
+            headers=alice_headers,
+        )
+        assert invalid_extension.status_code == 400
+
+        # Alice can extend the task once.
+        extended = client.post(
+            f"/tasks/{task_id}/extend",
+            json={"new_deadline": extended_deadline.isoformat()},
+            headers=alice_headers,
+        )
+        assert extended.status_code == 200
+        returned_deadline = datetime.fromisoformat(
+            extended.json()["deadline"]
+        ).replace(tzinfo=timezone.utc)
+        assert returned_deadline == extended_deadline
+
+        # The audit record preserves the original and new deadlines.
+        with Session(engine) as db:
+            audit = db.scalar(
+                select(DeadlineExtension).where(
+                    DeadlineExtension.task_id == task_id
+                )
+            )
+            assert audit is not None
+            assert audit.extended_by_user_id == alice_id
+            assert audit.original_deadline.replace(
+                tzinfo=timezone.utc
+            ) == original_deadline
+            assert audit.new_deadline.replace(
+                tzinfo=timezone.utc
+            ) == extended_deadline
+            assert audit.extended_at is not None
+
+        # A second extension is rejected.
+        second_extension = client.post(
+            f"/tasks/{task_id}/extend",
+            json={
+                "new_deadline": (
+                    extended_deadline + timedelta(hours=1)
+                ).isoformat()
+            },
+            headers=alice_headers,
+        )
+        assert second_extension.status_code == 409
+
+        # Ordinary updates cannot change the deadline.
+        bypass_extension = client.put(
+            f"/tasks/{task_id}",
+            json={
+                "deadline": (
+                    extended_deadline + timedelta(hours=1)
+                ).isoformat()
+            },
+            headers=alice_headers,
+        )
+        assert bypass_extension.status_code == 422
+
+        # Ordinary edits still work before the extended deadline.
+        normal_update = client.put(
+            f"/tasks/{task_id}",
+            json={"title": "Updated task title"},
+            headers=alice_headers,
+        )
+        assert normal_update.status_code == 200
+        assert normal_update.json()["title"] == "Updated task title"
+
+        # An expired task cannot be extended or edited.
+        expired_id = create_task(
+            "Expired task",
+            datetime.now(timezone.utc) - timedelta(minutes=1),
+        )
+
+        expired_extension = client.post(
+            f"/tasks/{expired_id}/extend",
+            json={
+                "new_deadline": (
+                    datetime.now(timezone.utc) + timedelta(hours=1)
+                ).isoformat()
+            },
+            headers=alice_headers,
+        )
+        assert expired_extension.status_code == 409
+
+        expired_update = client.put(
+            f"/tasks/{expired_id}",
+            json={"title": "Too late"},
+            headers=alice_headers,
+        )
+        assert expired_update.status_code == 409
+
+        # A completed task cannot be edited.
+        completed_id = create_task(
+            "Completed task",
+            datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+
+        completed = client.post(
+            f"/tasks/{completed_id}/complete",
+            headers=alice_headers,
+        )
+        assert completed.status_code == 200
+
+        completed_update = client.put(
+            f"/tasks/{completed_id}",
+            json={"title": "Change after completion"},
+            headers=alice_headers,
+        )
+        assert completed_update.status_code == 409
+
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()

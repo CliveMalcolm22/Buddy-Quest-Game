@@ -6,11 +6,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.deadline_extension import DeadlineExtension
 from app.models.point_event import PointEvent
 from app.models.task import Task
 from app.models.user import User
 from app.routers.auth import get_current_user
-from app.schemas.task import TaskCreate, TaskResponse, TaskUpdate
+from app.schemas.task import (
+    DeadlineExtensionRequest,
+    TaskCreate,
+    TaskResponse,
+    TaskUpdate,
+)
 from app.services.scoring import task_completion_points
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -59,6 +65,87 @@ def create_task(
 
     db.add(task)
     db.commit()
+    db.refresh(task)
+    return task
+
+
+@router.post("/{task_id}/extend", response_model=TaskResponse)
+def extend_task_deadline(
+    task_id: int,
+    payload: DeadlineExtensionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    task = db.scalar(
+        select(Task).where(
+            Task.id == task_id,
+            Task.user_id == current_user.id,
+        )
+    )
+
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if task.status != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail="Only pending tasks can have their deadlines extended",
+        )
+
+    if task.deadline is None:
+        raise HTTPException(
+            status_code=400,
+            detail="This task does not have a deadline to extend",
+        )
+
+    now = datetime.now(timezone.utc)
+    original_deadline = _as_utc(task.deadline)
+    new_deadline = _as_utc(payload.new_deadline)
+
+    if now >= original_deadline:
+        raise HTTPException(
+            status_code=409,
+            detail="A deadline can only be extended before it expires",
+        )
+
+    if new_deadline <= original_deadline:
+        raise HTTPException(
+            status_code=400,
+            detail="The new deadline must be later than the current deadline",
+        )
+
+    existing_extension = db.scalar(
+        select(DeadlineExtension).where(
+            DeadlineExtension.task_id == task.id
+        )
+    )
+
+    if existing_extension is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="This task has already used its one deadline extension",
+        )
+
+    db.add(
+        DeadlineExtension(
+            task_id=task.id,
+            extended_by_user_id=current_user.id,
+            original_deadline=task.deadline,
+            new_deadline=payload.new_deadline,
+            extended_at=now,
+        )
+    )
+    task.deadline = payload.new_deadline
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="This task has already used its one deadline extension",
+        )
+
     db.refresh(task)
     return task
 
@@ -189,8 +276,23 @@ def update_task(
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    for field, value in payload.model_dump().items():
-        setattr(task, field, value)
+    if task.status != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail="Completed or missed tasks cannot be edited",
+        )
+
+    if task.deadline is not None:
+        now = datetime.now(timezone.utc)
+        if now >= _as_utc(task.deadline):
+            raise HTTPException(
+                status_code=409,
+                detail="Tasks cannot be edited after their deadline",
+            )
+
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        if value is not None:
+            setattr(task, field, value)
 
     db.commit()
     db.refresh(task)

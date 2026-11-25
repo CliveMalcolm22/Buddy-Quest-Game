@@ -1,3 +1,4 @@
+from .deadline_extension import DeadlineExtension
 from .friendship import Friendship
 from .help import HelpRequest
 from .notification import Notification
@@ -14,4 +15,5 @@ __all__ = [
     "PointEvent",
     "Streak",
     "Notification",
+    "DeadlineExtension",
 ]
