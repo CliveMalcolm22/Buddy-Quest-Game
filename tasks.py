@@ -9,6 +9,7 @@ from app.models.task import Task, TaskHistory
 from app.models.user import User
 from app.routers.auth import get_current_user
 from app.schemas.task import TaskCreate, TaskHistoryResponse, TaskResponse, TaskUpdate
+from app.services.scheduler import get_task_scheduler
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -41,6 +42,7 @@ def create_task(
     _record_history(db, task, "created")
     db.commit()
     db.refresh(task)
+    get_task_scheduler().schedule_task(task)
     return task
 
 
@@ -75,6 +77,7 @@ def update_task(
     _record_history(db, task, "updated")
     db.commit()
     db.refresh(task)
+    get_task_scheduler().schedule_task(task)
     return task
 
 
@@ -91,6 +94,7 @@ def delete_task(
     task.deleted_at = datetime.now(timezone.utc)
     _record_history(db, task, "deleted")
     db.commit()
+    get_task_scheduler().unschedule_task(task.id)
     response.status_code = status.HTTP_204_NO_CONTENT
     return response
 
