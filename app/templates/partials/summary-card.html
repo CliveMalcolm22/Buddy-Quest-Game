@@ -1,0 +1,13 @@
+<div class="summary-card card">
+  <div class="summary-header">
+    <span class="label">{{ card.label }}</span>
+    <span class="trend trend-{{ card.trend_class }}">{{ card.trend }}</span>
+  </div>
+
+  <div class="summary-value-row">
+    <div class="big-value">{{ card.value }}</div>
+    <div class="delta delta-{{ card.trend_class }}">{{ card.trend }}</div>
+  </div>
+
+  <div class="summary-sub">{{ card.meta }}</div>
+</div>

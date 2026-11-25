@@ -1,0 +1,42 @@
+<div class="modal-backdrop">
+  <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="task-form-title">
+    <div class="modal-header">
+      <h2 id="task-form-title">{{ form_title }}</h2>
+      <button class="icon-button close-button" aria-label="Close">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="m18 6-12 12M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+
+    <form class="task-form" hx-post="{{ form_action }}" hx-target="#task-form-feedback" hx-swap="innerHTML">
+      <label class="field">
+        <span>Task name <span class="required-mark" aria-hidden="true">*</span></span>
+        <input type="text" name="title" maxlength="160" placeholder="Review study notes" value="{{ task.title if task else '' }}" required />
+      </label>
+
+      <div class="field-row">
+        <label class="field">
+          <span>Start time</span>
+          <input type="time" name="start_time" value="{{ task.start_time if task else '' }}" required />
+        </label>
+
+        <label class="field">
+          <span>Deadline</span>
+          <input type="time" name="deadline" value="{{ task.deadline if task else '' }}" required />
+        </label>
+      </div>
+
+      <label class="field">
+        <span>Notes</span>
+        <textarea name="notes" rows="3" maxlength="1000" placeholder="Optional context">{{ task.notes if task else '' }}</textarea>
+      </label>
+
+      <div id="task-form-feedback" aria-live="polite"></div>
+      <div class="modal-actions">
+        <button type="button" class="button secondary close-button">Cancel</button>
+        <button type="submit" class="button primary">Save task</button>
+      </div>
+    </form>
+  </section>
+</div>
