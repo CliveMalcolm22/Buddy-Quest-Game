@@ -5,7 +5,7 @@ from sqlalchemy import engine_from_config, pool
 
 from app.config import settings
 from app.database import Base
-from app.models import Friendship, HelpRequest, Notification, PointEvent, Streak, Task, User
+from app.models import Habit, HabitCompletion, Friendship, HelpRequest, Notification, PointEvent, Streak, Task, User
 
 config = context.config
 

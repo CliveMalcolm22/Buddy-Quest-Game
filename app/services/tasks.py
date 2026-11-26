@@ -58,8 +58,8 @@ def _validate_task(
 
 def _row_to_task(row: sqlite3.Row, now: datetime) -> dict:
     task = dict(row)
-    start = datetime.combine(date.fromisoformat(task["task_date"]), time.fromisoformat(task["start_time"]))
-    due = datetime.combine(date.fromisoformat(task["task_date"]), time.fromisoformat(task["deadline"]))
+    start = datetime.fromisoformat(task["start_time"])
+    due = datetime.fromisoformat(task["deadline"])
 
     if task["completed_at"]:
         status, label, progress = "done", "Done", 100
@@ -89,7 +89,7 @@ def list_today_tasks(database_path=DATABASE_PATH, now: datetime | None = None) -
     now = now or datetime.now()
     with connect(database_path) as connection:
         rows = connection.execute(
-            "SELECT * FROM tasks WHERE task_date = ? ORDER BY start_time, id",
+            "SELECT * FROM tasks WHERE date(start_time) = ? ORDER BY start_time, id",
             (now.date().isoformat(),),
         ).fetchall()
     return [_row_to_task(row, now) for row in rows]
@@ -119,10 +119,10 @@ def create_task(
     with connect(database_path) as connection:
         cursor = connection.execute(
             """
-            INSERT INTO tasks (title, start_time, deadline, notes, task_date)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO tasks (title, start_time, deadline, notes)
+            VALUES (?, ?, ?, ?)
             """,
-            (title, start.isoformat(timespec="minutes"), due.isoformat(timespec="minutes"), notes, now.date().isoformat()),
+            (title, start.isoformat(), due.isoformat(), notes),
         )
         task_id = cursor.lastrowid
     return get_task(task_id, database_path, now)
@@ -170,7 +170,7 @@ def complete_task(task_id: int, database_path=DATABASE_PATH, now: datetime | Non
     task = get_task(task_id, database_path, now)
     if not task["can_complete"]:
         raise TaskLockedError("This task can no longer be completed.")
-    due = datetime.combine(date.fromisoformat(task["task_date"]), time.fromisoformat(task["deadline"]))
+    due = datetime.fromisoformat(task["deadline"])
     points = 10 if now <= due else 3
     with connect(database_path) as connection:
         connection.execute(

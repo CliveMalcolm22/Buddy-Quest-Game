@@ -1,6 +1,18 @@
 from datetime import datetime, timezone
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 class TaskCreate(BaseModel):
@@ -26,21 +38,26 @@ class TaskCreate(BaseModel):
         return self
 
 
-def _as_utc(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+class TaskUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    notes: str | None = None
+    start_time: datetime | None = None
 
 
-class TaskUpdate(TaskCreate):
-    pass
+class DeadlineExtensionRequest(BaseModel):
+    new_deadline: datetime
 
 
 class TaskResponse(TaskCreate):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     user_id: int
     status: str
     completion_points: int
+    completed_at: datetime | None = None
     deleted_at: datetime | None = None
 
 
