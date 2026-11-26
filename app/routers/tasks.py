@@ -10,12 +10,13 @@ from app.models.deadline_extension import DeadlineExtension
 from app.models.help import HelpRequest
 from app.models.notification import Notification
 from app.models.point_event import PointEvent
-from app.models.task import Task
+from app.models.task import Task, TaskHistory
 from app.models.user import User
 from app.routers.auth import get_current_user
 from app.schemas.task import (
     DeadlineExtensionRequest,
     TaskCreate,
+    TaskHistoryResponse,
     TaskResponse,
     TaskUpdate,
 )
