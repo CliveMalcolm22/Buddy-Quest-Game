@@ -1,11 +1,23 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Form, Request
+from pathlib import Path
+
+from fastapi import FastAPI, Form, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pathlib import Path
+from sqlalchemy.orm import Session
+from app.models.task import Task
 
-from app.database import initialize_database
+from app.database import init_db, get_db
+from app.routers.auth import get_current_user
+from app.routers.friends import list_friends, list_incoming_requests, list_outgoing_requests
+from app.routers.auth import router as auth_router
+from app.routers.friends import router as friends_router
+from app.routers.leaderboard import router as leaderboard_router
+from app.routers.progress import router as progress_router
+from app.routers.tasks import router as tasks_router
+from app.routers.habits import router as habits_router
+from app.routers.social import router as social_router
 from app.services.tasks import (
     TaskLockedError,
     TaskNotFoundError,
@@ -24,11 +36,17 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    initialize_database()
+    init_db()
     yield
 
 
 app = FastAPI(title="Buddy Quest", version="0.1.0", lifespan=lifespan)
+app.include_router(auth_router)
+app.include_router(friends_router)
+app.include_router(social_router)
+app.include_router(habits_router)
+app.include_router(leaderboard_router)
+app.include_router(progress_router)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
@@ -80,6 +98,24 @@ def leaderboard(request: Request):
         {"leaderboard": get_dashboard_context()["leaderboard"]},
     )
 
+
+
+
+@app.get("/friends", response_class=HTMLResponse)
+def friends_page(
+    request: Request,
+    current_user=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    return templates.TemplateResponse(
+        request,
+        "pages/friends.html",
+        {
+            "friends": list_friends(current_user, db),
+            "incoming_requests": list_incoming_requests(current_user, db),
+            "outgoing_requests": list_outgoing_requests(current_user, db),
+        },
+    )
 
 @app.get("/summary", response_class=HTMLResponse)
 def summary(request: Request):
@@ -142,14 +178,26 @@ def add_task(
     start_time: str = Form(""),
     deadline: str = Form(""),
     notes: str = Form(""),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
-    try:
-        task = create_task(title, start_time, deadline, notes)
-    except TaskValidationError as exc:
-        return task_error_response(str(exc), 422)
+    if not title.strip():
+        return task_error_response("Task title is required.", 422)
+
+    task = Task(
+        user_id=current_user.id,
+        title=title.strip(),
+        start_time=start_time or None,
+        deadline=deadline or None,
+        notes=notes.strip(),
+        status="pending",
+        completion_points=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
     return task_write_response(request, task, created=True)
-
-
 @app.post("/tasks/{task_id}/edit", response_class=HTMLResponse)
 def save_task(
     request: Request,
@@ -170,7 +218,7 @@ def save_task(
     return task_write_response(request, task, created=False)
 
 
-@app.post("/tasks/{task_id}/complete", response_class=HTMLResponse)
+@app.post("/tasks/{task_id}/complete-html", response_class=HTMLResponse)
 def mark_task_complete(request: Request, task_id: int):
     try:
         task = complete_task(task_id)
@@ -197,3 +245,5 @@ def remove_task(task_id: int):
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+app.include_router(tasks_router)

@@ -1,16 +1,32 @@
-from contextlib import contextmanager
 import os
-from pathlib import Path
 import sqlite3
-from typing import Iterator
+from collections.abc import Generator, Iterator
+from contextlib import contextmanager
+from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
-MIGRATIONS_DIR = BASE_DIR.parent / "migrations"
-DATABASE_PATH = Path(os.environ.get("DATABASE_PATH", BASE_DIR.parent / "buddy_quest.db"))
+from sqlalchemy import create_engine
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+
+from app.config import settings
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATABASE_PATH = Path(os.environ.get("DATABASE_PATH", BASE_DIR / "buddy_quest.db"))
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+engine_kwargs = {}
+if settings.database_url.startswith("sqlite"):
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+
+engine = create_engine(settings.database_url, future=True, pool_pre_ping=True, **engine_kwargs)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 @contextmanager
-def connect(database_path: Path = DATABASE_PATH) -> Iterator[sqlite3.Connection]:
+def connect(database_path: str | Path = DATABASE_PATH) -> Iterator[sqlite3.Connection]:
     connection = sqlite3.connect(database_path)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
@@ -21,7 +37,7 @@ def connect(database_path: Path = DATABASE_PATH) -> Iterator[sqlite3.Connection]
         connection.close()
 
 
-def initialize_database(database_path: Path = DATABASE_PATH) -> None:
+def initialize_database(database_path: str | Path = DATABASE_PATH) -> None:
     with connect(database_path) as connection:
         connection.execute(
             """
@@ -31,16 +47,16 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
             )
             """
         )
-        for migration_path in sorted(MIGRATIONS_DIR.glob("*.sql")):
-            version = migration_path.name
-            applied = connection.execute(
-                "SELECT 1 FROM schema_migrations WHERE version = ?",
-                (version,),
-            ).fetchone()
-            if applied:
-                continue
-            connection.executescript(migration_path.read_text(encoding="utf-8"))
-            connection.execute(
-                "INSERT INTO schema_migrations (version) VALUES (?)",
-                (version,),
-            )
+
+
+def get_db() -> Generator[Session, None, None]:
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def init_db() -> None:
+    Base.metadata.create_all(bind=engine)
+    initialize_database()

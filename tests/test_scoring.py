@@ -1,4 +1,3 @@
-# tests/test_scoring.py
 
 import pytest
 
@@ -11,6 +10,7 @@ from app.services.scoring import (
     ON_TIME_TASK_POINTS,
     cheer_points,
     daily_completion_bonus,
+    help_friend_points,
     task_completion_points,
 )
 
@@ -73,3 +73,11 @@ def test_negative_cheer_count_raises_error():
 
 def test_helping_a_friend_is_worth_five_points():
     assert HELP_FRIEND_POINTS == 5
+
+
+def test_helping_friend_complete_task_awards_five_points():
+    assert help_friend_points(True) == 5
+
+
+def test_helping_friend_incomplete_task_awards_no_points():
+    assert help_friend_points(False) == 0

@@ -348,3 +348,28 @@ button, input, textarea {
   width: 36px;
   height: 36px;
 }
+
+/* Fix task modal action buttons */
+.modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.modal-actions .button {
+  flex: 0 0 auto;
+  min-width: 88px;
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .modal-actions {
+    justify-content: stretch;
+  }
+
+  .modal-actions .button {
+    flex: 1 1 auto;
+  }
+}
